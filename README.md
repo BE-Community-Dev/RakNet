@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](RakNet.csproj)
 
-> [中文版](readme_zh.md)
+> [Chinese](readme_zh.md)
 
 A pure C# implementation of the RakNet networking protocol for games and real-time applications. This library provides reliable message transport over UDP with multiple reliability levels, automatic retransmission, MTU discovery, and DoS protection.
 
