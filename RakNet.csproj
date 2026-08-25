@@ -4,6 +4,19 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- NuGet package metadata (version is supplied by the release workflow) -->
+    <PackageId>ArkMirage.RakNet</PackageId>
+    <Authors>BE-Community-Dev</Authors>
+    <Description>A pure C# implementation of the RakNet networking protocol for games and real-time applications, providing reliable message transport over UDP.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>raknet;networking;udp;games;reliable-udp;minecraft</PackageTags>
+    <RepositoryUrl>https://github.com/BE-Community-Dev/RakNet.git</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
 </Project>
