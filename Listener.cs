@@ -16,6 +16,7 @@ public class ListenConfig
     public bool DisableCookies { get; set; }
     public ushort MaxMTU { get; set; }
     public TimeSpan BlockDuration { get; set; } = TimeSpan.FromSeconds(10);
+
 }
 
 /// <summary>
@@ -144,6 +145,7 @@ public class Listener : IDisposable
 
     internal bool IsBlocked(IPEndPoint addr) => _security.Blocked(addr);
     internal void SecurityBlock(IPEndPoint addr) => _security.Block(addr);
+
     internal CancellationToken ClosedToken => _cts.Token;
 }
 
@@ -162,6 +164,8 @@ public static class ListenConfigExtensions
 
         var udp = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         udp.Bind(endpoint);
+        SocketTuning.Enlarge(udp);
+        SocketTuning.DisableUdpConnReset(udp);
 
         var listener = new Listener(conf, udp);
 
@@ -201,9 +205,19 @@ public static class ListenConfigExtensions
                 {
                     n = udp.ReceiveFrom(buffer, SocketFlags.None, ref remote);
                 }
-                catch (SocketException)
+                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset)
                 {
-                    break;
+                    // Windows UDP surfaces "a datagram we sent earlier hit a closed remote port"
+                    // as ECONNRESET on the NEXT ReceiveFrom. That is routine around player quits
+                    // (our pong or disconnect notification raced their closing socket) - it must
+                    // not kill the listener. SIO_UDP_CONNRESET usually prevents this entirely;
+                    // this handler is the belt to those braces.
+                    continue;
+                }
+                catch (SocketException ex)
+                {
+                    conf.ErrorLog?.Invoke($"receive failed: {ex.SocketErrorCode}");
+                    continue;
                 }
                 catch (ObjectDisposedException)
                 {
@@ -212,6 +226,17 @@ public static class ListenConfigExtensions
 
                 if (n == 0) continue;
                 var ep = (IPEndPoint)remote;
+
+                // A fresh OpenConnectionRequest from an address that still maps to a session means
+                // the peer restarted its connection - its next join can reuse the source port -
+                // while we still hold a zombie, typically because the quit's disconnect
+                // notification never arrived. Drop the zombie; otherwise it swallows the handshake
+                // datagrams and the player cannot join until the session times out.
+                if ((buffer[0] == Id.OpenConnectionRequest1 || buffer[0] == Id.OpenConnectionRequest2)
+                    && listener._connections.TryRemove(ep.ToString(), out Conn? stale))
+                {
+                    stale.CloseImmediately();
+                }
 
                 if (listener.IsBlocked(ep))
                     continue;
@@ -265,7 +290,10 @@ public static class ListenConfigExtensions
             default:
                 if ((b[0] & RakNetConstants.BitFlagDatagram) != 0)
                 {
-                    conf.ErrorLog?.Invoke($"unexpected datagram (raddr={addr})");
+                    // A datagram from an address with no session is the normal end-of-connection
+                    // race: the peer's disconnect notification removed the session while its last
+                    // ACKs / retransmits were still in flight (UDP has no teardown). Ignore it -
+                    // logging it made every clean quit look like an error.
                     return;
                 }
                 throw new Exception($"unknown unconnected packet (id={b[0]:x}, len={b.Length})");
@@ -328,10 +356,6 @@ public static class ListenConfigExtensions
             if (pk.Cookie != expected && pk.Cookie != prevExpected)
                 throw new Exception($"handle OPEN_CONNECTION_REQUEST_2: invalid cookie '{pk.Cookie:X}', expected '{expected:X}'");
         }
-
-        // Vanilla clients always provide a negative ClientGUID.
-        if (pk.ClientGuid >= 0)
-            throw new Exception($"handle OPEN_CONNECTION_REQUEST_2: invalid ClientGUID '{pk.ClientGuid}', expected negative");
 
         ushort mtuSize = Math.Min(pk.MTU, conf.MaxMTU);
 

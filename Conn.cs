@@ -288,7 +288,22 @@ public class Conn : IDisposable
     public void Close()
     {
         long now = DateTime.Now.Ticks;
-        Interlocked.CompareExchange(ref _closing, now, 0);
+        if (Interlocked.CompareExchange(ref _closing, now, 0) != 0)
+            return; // Already closing.
+
+        // Fast path: with nothing unacknowledged in flight there is no data the
+        // peer still needs, so the disconnect notification can go out right now.
+        // Without this, an idle connection (the typical state of a backend leg
+        // being switched away from) waited for the ticking thread's 1-second
+        // idle deadline before the notification was sent, leaving the old
+        // server holding the player slot long after the proxy had handed over.
+        lock (_mu)
+        {
+            if (_retransmission.Unacknowledged.Count == 0)
+            {
+                CloseImmediately();
+            }
+        }
     }
 
     public void Dispose()

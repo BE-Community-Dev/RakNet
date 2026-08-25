@@ -279,14 +279,18 @@ public class Dialer
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+        SocketTuning.Enlarge(socket);
+        SocketTuning.DisableUdpConnReset(socket);
         return socket;
     }
 
     internal Socket CreateSocketFor(IPEndPoint remoteAddr)
     {
-        if (UpstreamDialer != null)
-            return UpstreamDialer.CreateUdpSocket(remoteAddr);
-        return CreateUdpSocket();
+        var socket = UpstreamDialer != null
+            ? UpstreamDialer.CreateUdpSocket(remoteAddr)
+            : CreateUdpSocket();
+        SocketTuning.Enlarge(socket);
+        return socket;
     }
 
     internal static ushort[] MtuSizesFor(ushort maxMTU)
